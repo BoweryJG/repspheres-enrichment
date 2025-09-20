@@ -1,0 +1,11 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python app.py"
+healthcheckPath = "/"
+restartPolicyType = "NEVER"
+
+[[services]]
+name = "enrichment-worker"
+type = "worker"
