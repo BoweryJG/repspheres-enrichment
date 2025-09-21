@@ -1,364 +1,350 @@
 #!/usr/bin/env python3
 """
-REPSPHERES FREE SEARCH CONTINUOUS ENRICHMENT ENGINE
-Deploys to Railway and runs 24/7 using ONLY FREE APIs
+REPSPHERES PROVIDER INTELLIGENCE ENRICHMENT ENGINE
+Continuously enriches providers from rpin_providers table using FREE search APIs
 """
 
 import os
 import asyncio
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import random
 import re
+from urllib.parse import quote
 from supabase import create_client, Client
+import hashlib
 
-# Environment variables
+# Environment variables - hardcoded for Railway deployment
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://aesnlbefqtxylvkqdlqo.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlc25sYmVmcXR4eWx2a3FkbHFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjU2NTk4MSwiZXhwIjoyMDcyMTQxOTgxfQ.evKWee9bgtjPVxS1AY2c14I7phtu36EL2tu2swWFC8M")
 
-class FreeSearchEnrichment:
+class ProviderIntelligenceEngine:
     """
-    Uses ONLY FREE search methods to continuously enrich the MPI
-    DuckDuckGo, Reddit, Yelp scraping, Google scraping - NO API KEYS!
+    Enriches actual providers from database with real intelligence
     """
 
     def __init__(self):
         self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         self.session = None
         self.cycle_count = 0
-        self.total_hot_leads = 0
-        self.enrichment_stats = {
-            "morpheus8_users": 0,
-            "co2_users": 0,
-            "new_practices": 0,
-            "distressed": 0,
-            "competitors_tracked": 0,
-            "trigger_events": 0
-        }
+        self.providers_enriched = 0
+        self.hot_leads_found = 0
+
+        # Equipment signals to search for
+        self.equipment_signals = [
+            "Morpheus8", "CO2 laser", "IPL", "CoolSculpting", "Hydrafacial",
+            "Ultherapy", "Clear + Brilliant", "Fraxel", "PicoSure", "Emsculpt",
+            "InMode", "Candela", "Lumenis", "Sciton", "Cutera"
+        ]
+
+        # Expansion signals
+        self.expansion_signals = [
+            "new location", "grand opening", "now offering", "expanding",
+            "hiring", "join our team", "second location", "new office"
+        ]
+
+        # Financial distress signals
+        self.distress_signals = [
+            "closing", "closed permanently", "out of business", "bankruptcy",
+            "for sale", "shutting down"
+        ]
 
     async def start(self):
         """Start the continuous enrichment engine"""
         print("="*80)
-        print("🚀 REPSPHERES FREE SEARCH ENRICHMENT ENGINE")
+        print("🚀 REPSPHERES PROVIDER INTELLIGENCE ENGINE")
         print("="*80)
-        print(f"Deployment: Railway Production")
         print(f"Database: {SUPABASE_URL}")
         print(f"Started: {datetime.now()}")
         print("="*80)
-        print("\n📋 FREE SEARCH METHODS:")
-        print("   ✓ DuckDuckGo Instant API (NO KEY)")
-        print("   ✓ Reddit JSON API (NO KEY)")
-        print("   ✓ Google Scraping (CAREFUL)")
-        print("   ✓ Yelp Scraping")
-        print("   ✓ RealSelf Forum Monitoring")
-        print("="*80)
 
-        self.session = aiohttp.ClientSession()
+        self.session = aiohttp.ClientSession(
+            headers={'User-Agent': 'Mozilla/5.0 (compatible)'}
+        )
 
         try:
             while True:
-                await self.enrichment_cycle()
-                await asyncio.sleep(60)  # Run every minute
-        except Exception as e:
-            print(f"[ERROR] Engine crashed: {e}")
+                self.cycle_count += 1
+                await self.enrich_cycle()
+                print(f"\n⏰ Waiting 30 minutes before next cycle...")
+                await asyncio.sleep(1800)  # 30 minutes
+
+        except KeyboardInterrupt:
+            print("\n🛑 Shutting down...")
         finally:
             if self.session:
                 await self.session.close()
 
-    async def enrichment_cycle(self):
-        """One complete enrichment cycle"""
-        self.cycle_count += 1
-        start_time = datetime.now()
+    async def enrich_cycle(self):
+        """Run one enrichment cycle"""
+        print(f"\n[CYCLE #{self.cycle_count}] {datetime.now().strftime('%H:%M:%S')}")
+        print("-" * 60)
 
-        print(f"\n[CYCLE #{self.cycle_count}] {start_time.strftime('%H:%M:%S')}")
-        print("-"*60)
+        # Get providers to enrich
+        providers = await self.get_providers_to_enrich()
 
-        # Run ALL FREE enrichment tasks in parallel
-        tasks = [
-            self.search_duckduckgo(),
-            self.monitor_reddit_free(),
-            self.check_yelp_free(),
-            self.scrape_google_carefully(),
-            self.check_realself_forums(),
-            self.monitor_facebook_pages()
-        ]
+        if not providers:
+            print("⚠️ No providers to enrich")
+            return
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        print(f"📊 Found {len(providers)} providers to enrich")
 
-        # Count successes
-        successes = sum(1 for r in results if not isinstance(r, Exception))
+        # Process in parallel batches
+        batch_size = 10
+        for i in range(0, len(providers), batch_size):
+            batch = providers[i:i+batch_size]
+            tasks = [self.enrich_provider(p) for p in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Update database with findings
-        await self.update_mpi_database()
+            for result in results:
+                if isinstance(result, Exception):
+                    print(f"   ❌ Error: {result}")
 
-        print(f"[CYCLE #{self.cycle_count}] Complete - {successes}/6 tasks succeeded")
-        print(f"   📊 Total Hot Leads: {self.total_hot_leads}")
-        print(f"   🔥 Morpheus8 Users: {self.enrichment_stats['morpheus8_users']}")
-        print(f"   💎 CO2 Laser Users: {self.enrichment_stats['co2_users']}")
-        print(f"   🏥 New Practices: {self.enrichment_stats['new_practices']}")
+            # Rate limiting
+            await asyncio.sleep(2)
 
-    async def search_duckduckgo(self):
-        """DuckDuckGo Instant Answer API - COMPLETELY FREE!"""
+        print(f"\n✅ Cycle complete - Enriched: {self.providers_enriched}, Hot leads: {self.hot_leads_found}")
+
+    async def get_providers_to_enrich(self):
+        """Get providers from rpin_providers that need enrichment"""
         try:
-            queries = [
-                "Boston medical spa Morpheus8 2024",
-                "Newton MA dermatology CO2 laser",
-                "Cambridge aesthetic clinic InMode",
-                "Brookline med spa new opening",
-                "Boston Botox provider expansion"
+            # Get providers that haven't been enriched recently
+            response = self.supabase.table("rpin_providers").select(
+                "id,npi,provider_name,first_name,last_name,organization_name,city,state"
+            ).in_("state", ["CA", "MA", "PA", "TX", "FL", "NY"]).limit(100).execute()
+
+            providers = response.data
+
+            # Filter out already enriched providers (check rpin_provider_intelligence)
+            enriched_response = self.supabase.table("rpin_provider_intelligence").select("provider_id").execute()
+            enriched_ids = {r['provider_id'] for r in enriched_response.data if r.get('provider_id')}
+
+            # Return providers not yet enriched
+            return [p for p in providers if p['id'] not in enriched_ids][:50]  # Limit to 50 per cycle
+
+        except Exception as e:
+            print(f"❌ Error getting providers: {e}")
+            return []
+
+    async def enrich_provider(self, provider):
+        """Enrich a single provider with intelligence"""
+        try:
+            provider_name = self._build_provider_name(provider)
+            location = f"{provider.get('city', '')}, {provider.get('state', '')}"
+
+            print(f"   🔍 Enriching: {provider_name} - {location}")
+
+            intelligence = {
+                'provider_id': provider['id'],
+                'npi': provider.get('npi'),
+                'display_name': provider_name,
+                'equipment_data': {},
+                'market_insights': {},
+                'opportunity_score': 0
+            }
+
+            # Search for intelligence using multiple methods
+            tasks = [
+                self.search_duckduckgo(provider_name, location),
+                self.search_reddit(provider_name, provider.get('organization_name')),
+                self.search_google_careful(provider_name, location)
             ]
 
-            for query in queries:
-                url = f"https://api.duckduckgo.com/?q={query.replace(' ', '+')}&format=json&no_html=1"
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-                async with self.session.get(url) as response:
-                    if response.status == 200:
-                        data = await response.json()
+            # Process results
+            signals_found = []
+            for result in results:
+                if isinstance(result, dict):
+                    signals_found.extend(result.get('signals', []))
 
-                        # Check for results
-                        if data.get("Abstract"):
-                            self.total_hot_leads += 1
-                            print(f"   🔥 DuckDuckGo: {query[:40]}")
+            # Analyze signals
+            for signal in signals_found:
+                # Check for equipment
+                for equipment in self.equipment_signals:
+                    if equipment.lower() in signal.lower():
+                        intelligence['equipment_data'][equipment] = {
+                            'detected': True,
+                            'source': 'web_search',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        intelligence['opportunity_score'] += 20
 
-                            # Extract practice info
-                            if "Morpheus8" in data.get("Abstract", ""):
-                                self.enrichment_stats["morpheus8_users"] += 1
+                # Check for expansion
+                for expansion in self.expansion_signals:
+                    if expansion.lower() in signal.lower():
+                        intelligence['market_insights']['expansion_signal'] = True
+                        intelligence['opportunity_score'] += 15
 
-                        # Check RelatedTopics
-                        for topic in data.get("RelatedTopics", [])[:3]:
-                            if isinstance(topic, dict) and topic.get("Text"):
-                                text = topic["Text"].lower()
-                                if any(word in text for word in ["morpheus", "co2", "laser", "med spa"]):
-                                    self.enrichment_stats["new_practices"] += 1
+                # Check for distress
+                for distress in self.distress_signals:
+                    if distress.lower() in signal.lower():
+                        intelligence['market_insights']['distress_signal'] = True
+                        intelligence['opportunity_score'] -= 30
 
-                await asyncio.sleep(1)
+            # Save to database if we found intelligence
+            if intelligence['opportunity_score'] > 0:
+                await self.save_intelligence(intelligence, provider)
+                self.providers_enriched += 1
 
-            return "DuckDuckGo complete"
+                if intelligence['opportunity_score'] >= 30:
+                    self.hot_leads_found += 1
+                    print(f"      🔥 HOT LEAD! Score: {intelligence['opportunity_score']}")
+
         except Exception as e:
-            print(f"   ❌ DuckDuckGo failed: {e}")
-            return None
+            print(f"   ❌ Error enriching {provider.get('provider_name')}: {e}")
 
-    async def monitor_reddit_free(self):
-        """Reddit public JSON API - NO KEY NEEDED!"""
+    async def search_duckduckgo(self, provider_name, location):
+        """Search DuckDuckGo instant API (no key required)"""
         try:
-            subreddits = [
-                ("boston", "medical spa OR morpheus8 OR botox"),
-                ("PlasticSurgery", "Boston OR Massachusetts"),
-                ("30PlusSkinCare", "Boston laser treatment")
-            ]
+            query = f"{provider_name} {location} medical aesthetic dermatology"
+            url = f"https://api.duckduckgo.com/?q={quote(query)}&format=json&no_html=1"
 
-            for subreddit, search_query in subreddits:
-                url = f"https://www.reddit.com/r/{subreddit}/search.json?q={search_query.replace(' ', '+')}&restrict_sr=on&sort=new&limit=10"
-                headers = {"User-Agent": "RepSpheres/1.0"}
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                async with self.session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        posts = data.get("data", {}).get("children", [])
+                    signals = []
+                    # Check abstract and related topics
+                    if data.get('Abstract'):
+                        signals.append(data['Abstract'])
 
-                        for post in posts[:5]:
-                            post_data = post.get("data", {})
-                            title = post_data.get("title", "").lower()
-                            selftext = post_data.get("selftext", "").lower()
+                    for topic in data.get('RelatedTopics', [])[:3]:
+                        if isinstance(topic, dict) and topic.get('Text'):
+                            signals.append(topic['Text'])
 
-                            # Check for hot signals
-                            if "morpheus" in title or "morpheus" in selftext:
-                                self.enrichment_stats["morpheus8_users"] += 1
-                                self.total_hot_leads += 1
-                                print(f"   🔥 Reddit: Morpheus8 mention found")
+                    return {'source': 'duckduckgo', 'signals': signals}
+        except:
+            pass
+        return {'source': 'duckduckgo', 'signals': []}
 
-                            if "closing" in title or "shutting down" in title:
-                                self.enrichment_stats["distressed"] += 1
-                                print(f"   💰 Reddit: Distressed practice signal")
-
-                await asyncio.sleep(2)
-
-            return "Reddit monitoring complete"
-        except Exception as e:
-            print(f"   ❌ Reddit failed: {e}")
-            return None
-
-    async def check_yelp_free(self):
-        """Scrape Yelp for med spas - FREE but careful"""
+    async def search_reddit(self, provider_name, organization_name):
+        """Search Reddit for mentions (public JSON API, no key)"""
         try:
-            cities = ["Boston", "Newton", "Cambridge", "Brookline", "Wellesley"]
+            search_term = organization_name or provider_name
+            if not search_term:
+                return {'source': 'reddit', 'signals': []}
 
-            for city in cities:
-                url = f"https://www.yelp.com/search?find_desc=medical+spa&find_loc={city}%2C+MA"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                }
+            # Reddit public JSON endpoint
+            url = f"https://www.reddit.com/search.json?q={quote(search_term)}&limit=5&sort=new"
 
-                async with self.session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        html = await response.text()
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
 
-                        # Look for new businesses (would parse properly in production)
-                        if "Newly Opened" in html or "Grand Opening" in html:
-                            self.enrichment_stats["new_practices"] += 1
-                            self.total_hot_leads += 1
-                            print(f"   🔥 Yelp: New med spa in {city}")
+                    signals = []
+                    for post in data.get('data', {}).get('children', [])[:3]:
+                        post_data = post.get('data', {})
+                        title = post_data.get('title', '')
+                        selftext = post_data.get('selftext', '')[:200]
+                        signals.append(f"{title} {selftext}")
 
-                        # Check for specific devices mentioned
-                        if "Morpheus8" in html:
-                            self.enrichment_stats["morpheus8_users"] += 1
-                            print(f"   🔥 Yelp: Morpheus8 user in {city}")
+                    return {'source': 'reddit', 'signals': signals}
+        except:
+            pass
+        return {'source': 'reddit', 'signals': []}
 
-                await asyncio.sleep(3)  # Be respectful
-
-            return "Yelp scraping complete"
-        except Exception as e:
-            print(f"   ❌ Yelp failed: {e}")
-            return None
-
-    async def scrape_google_carefully(self):
-        """Very careful Google scraping - use sparingly"""
+    async def search_google_careful(self, provider_name, location):
+        """Carefully scrape Google search results"""
         try:
-            # Use site-specific searches to reduce risk
-            queries = [
-                "site:realself.com Boston Morpheus8 review 2024",
-                "site:facebook.com Boston medical spa opening",
-                "site:linkedin.com Boston dermatology expansion"
-            ]
+            query = f"{provider_name} {location} Morpheus8 CO2 laser reviews"
+            url = f"https://www.google.com/search?q={quote(query)}"
 
-            for query in queries:
-                url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-                }
+            # Random delay to avoid detection
+            await asyncio.sleep(random.uniform(1, 3))
 
-                async with self.session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        html = await response.text()
-
-                        # Extract signals
-                        if "morpheus" in html.lower():
-                            self.enrichment_stats["morpheus8_users"] += 1
-                            print(f"   🔥 Google: Morpheus8 signal")
-
-                        if "opening" in html.lower() or "expansion" in html.lower():
-                            self.enrichment_stats["trigger_events"] += 1
-                            self.total_hot_leads += 1
-                            print(f"   🎯 Google: Expansion trigger found")
-
-                await asyncio.sleep(10)  # Long delay for Google
-
-            return "Google scraping complete"
-        except Exception as e:
-            print(f"   ❌ Google scraping failed: {e}")
-            return None
-
-    async def check_realself_forums(self):
-        """Monitor RealSelf for provider issues - FREE"""
-        try:
-            # RealSelf has public pages we can check
-            boston_url = "https://www.realself.com/find/Massachusetts/Boston"
-            headers = {"User-Agent": "RepSpheres/1.0"}
-
-            async with self.session.get(boston_url, headers=headers) as response:
+            async with self.session.get(url, timeout=10) as response:
                 if response.status == 200:
                     html = await response.text()
 
-                    # Look for negative signals (practice issues)
-                    negative_keywords = ["complaint", "closed", "lawsuit", "issue", "problem"]
-                    for keyword in negative_keywords:
-                        if keyword in html.lower():
-                            self.enrichment_stats["distressed"] += 1
-                            print(f"   💰 RealSelf: Distressed practice signal")
-                            break
+                    signals = []
+                    # Extract snippets (very basic, careful parsing)
+                    import re
+                    snippets = re.findall(r'<span[^>]*>([^<]{50,300})</span>', html)
 
-                    # Look for device mentions
-                    if "Morpheus8" in html:
-                        self.enrichment_stats["morpheus8_users"] += 1
-                        print(f"   🔥 RealSelf: Morpheus8 provider found")
+                    for snippet in snippets[:5]:
+                        if provider_name.split()[0].lower() in snippet.lower():
+                            signals.append(snippet)
 
-            return "RealSelf monitoring complete"
-        except Exception as e:
-            print(f"   ❌ RealSelf failed: {e}")
-            return None
+                    return {'source': 'google', 'signals': signals}
+        except:
+            pass
+        return {'source': 'google', 'signals': []}
 
-    async def monitor_facebook_pages(self):
-        """Check Facebook pages for signals - LIMITED FREE"""
+    async def save_intelligence(self, intelligence, provider):
+        """Save enriched intelligence to database"""
         try:
-            # Facebook Graph API has limited free access
-            # We can check public pages without login
-
-            # Simulate finding signals (would implement actual checking)
-            signals = [
-                "New Morpheus8 device installed",
-                "Grand opening celebration",
-                "Now offering CO2 laser treatments",
-                "Expanding to second location"
-            ]
-
-            for signal in signals:
-                if random.random() > 0.7:  # 30% chance
-                    self.total_hot_leads += 1
-                    self.enrichment_stats["trigger_events"] += 1
-                    print(f"   🔥 Facebook: {signal}")
-
-            return "Facebook monitoring complete"
-        except Exception as e:
-            print(f"   ❌ Facebook monitoring failed: {e}")
-            return None
-
-    async def update_mpi_database(self):
-        """Update Supabase with enriched data"""
-        try:
-            # Prepare enrichment log
-            enrichment_log = {
-                "cycle": self.cycle_count,
-                "timestamp": datetime.now().isoformat(),
-                "hot_leads": self.total_hot_leads,
-                "morpheus8_users": self.enrichment_stats["morpheus8_users"],
-                "co2_users": self.enrichment_stats["co2_users"],
-                "new_practices": self.enrichment_stats["new_practices"],
-                "distressed": self.enrichment_stats["distressed"],
-                "trigger_events": self.enrichment_stats["trigger_events"]
+            # Prepare record for rpin_provider_intelligence
+            record = {
+                'provider_id': provider['id'],
+                'npi': provider.get('npi'),
+                'display_name': intelligence['display_name'],
+                'first_name': provider.get('first_name'),
+                'last_name': provider.get('last_name'),
+                'organization_name': provider.get('organization_name'),
+                'city': provider.get('city'),
+                'state': provider.get('state'),
+                'equipment_data': json.dumps(intelligence['equipment_data']) if intelligence['equipment_data'] else None,
+                'market_insights': json.dumps(intelligence['market_insights']) if intelligence['market_insights'] else None,
+                'opportunity_score': intelligence['opportunity_score'],
+                'data_source': 'free_search_apis',
+                'verified': False,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
             }
 
-            # Insert into enrichment_logs table
-            response = self.supabase.table("enrichment_logs").insert(enrichment_log).execute()
+            # Upsert to rpin_provider_intelligence
+            response = self.supabase.table("rpin_provider_intelligence").upsert(
+                record,
+                on_conflict="provider_id"
+            ).execute()
 
-            print(f"   📤 Database updated with {self.total_hot_leads} hot leads")
-
-            # Also update specific practice records if we found them
-            if self.enrichment_stats["morpheus8_users"] > 0:
-                # Update practices marked as Morpheus8 users
-                update_data = {
-                    "device_types": ["Morpheus8"],
-                    "opportunity_score": 95,
-                    "last_enriched": datetime.now().isoformat()
+            # If high opportunity score, also add to provider_buying_signals
+            if intelligence['opportunity_score'] >= 30:
+                signal_record = {
+                    'provider_id': provider['id'],
+                    'signal_type': 'equipment_adoption' if intelligence['equipment_data'] else 'expansion',
+                    'signal_strength': 'high' if intelligence['opportunity_score'] >= 50 else 'medium',
+                    'details': json.dumps(intelligence),
+                    'created_at': datetime.now().isoformat()
                 }
-                # Would update specific practices here
 
-            return "Database updated"
+                self.supabase.table("provider_buying_signals").insert(signal_record).execute()
+
+            print(f"      ✅ Saved intelligence (score: {intelligence['opportunity_score']})")
+
         except Exception as e:
-            print(f"   ❌ Database update failed: {e}")
-            return None
+            print(f"      ❌ Error saving intelligence: {e}")
 
-# Health check for Railway
-async def health_check():
-    """Railway health monitoring"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "deployment": "railway",
-        "method": "free_search"
-    }
+    def _build_provider_name(self, provider):
+        """Build a searchable provider name"""
+        if provider.get('organization_name'):
+            return provider['organization_name']
 
-# Main execution
+        first = provider.get('first_name', '')
+        last = provider.get('last_name', '')
+
+        if first and last:
+            return f"Dr. {first} {last}"
+        elif last:
+            return f"Dr. {last}"
+        elif provider.get('provider_name'):
+            return provider['provider_name']
+
+        return "Unknown Provider"
+
 async def main():
-    engine = FreeSearchEnrichment()
+    """Main entry point"""
+    engine = ProviderIntelligenceEngine()
     await engine.start()
 
 if __name__ == "__main__":
-    print("\n🚀 STARTING REPSPHERES FREE SEARCH ENGINE")
-    print("   • DuckDuckGo Instant API (NO KEY)")
-    print("   • Reddit Public API (NO KEY)")
-    print("   • Careful Web Scraping")
+    print("🚀 STARTING REPSPHERES PROVIDER INTELLIGENCE ENGINE")
+    print("   • Pulling providers from rpin_providers table")
+    print("   • Searching for equipment & expansion signals")
+    print("   • Enriching rpin_provider_intelligence")
+    print("   • Using FREE APIs only (no keys required)")
     print("   • Deploying to Railway...")
-    print("")
 
     asyncio.run(main())
