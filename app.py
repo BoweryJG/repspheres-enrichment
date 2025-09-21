@@ -294,11 +294,12 @@ class ProviderIntelligenceEngine:
                 'updated_at': datetime.now().isoformat()
             }
 
-            # Upsert to rpin_provider_intelligence
-            response = self.supabase.table("rpin_provider_intelligence").upsert(
-                record,
-                on_conflict="provider_id"
-            ).execute()
+            # Insert to rpin_provider_intelligence (upsert not working)
+            try:
+                response = self.supabase.table("rpin_provider_intelligence").insert(record).execute()
+            except:
+                # If exists, update instead
+                response = self.supabase.table("rpin_provider_intelligence").update(record).eq('provider_id', provider['id']).execute()
 
             # If high opportunity score, also add to provider_buying_signals
             if intelligence['opportunity_score'] >= 30:
