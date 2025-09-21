@@ -277,7 +277,7 @@ class ProviderIntelligenceEngine:
         try:
             # Prepare record for rpin_provider_intelligence
             record = {
-                'provider_id': provider['id'],
+                'provider_id': str(provider['id']),  # Ensure UUID format
                 'npi': provider.get('npi'),
                 'display_name': intelligence['display_name'],
                 'first_name': provider.get('first_name'),
@@ -285,13 +285,11 @@ class ProviderIntelligenceEngine:
                 'organization_name': provider.get('organization_name'),
                 'city': provider.get('city'),
                 'state': provider.get('state'),
-                'equipment_data': json.dumps(intelligence['equipment_data']) if intelligence['equipment_data'] else None,
-                'market_insights': json.dumps(intelligence['market_insights']) if intelligence['market_insights'] else None,
+                'equipment_data': intelligence['equipment_data'] if intelligence['equipment_data'] else {},
+                'market_insights': intelligence['market_insights'] if intelligence['market_insights'] else {},
                 'opportunity_score': intelligence['opportunity_score'],
                 'data_source': 'free_search_apis',
-                'verified': False,
-                'created_at': datetime.now().isoformat(),
-                'updated_at': datetime.now().isoformat()
+                'verified': False
             }
 
             # Insert to rpin_provider_intelligence (upsert not working)
