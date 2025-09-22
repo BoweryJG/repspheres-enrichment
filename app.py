@@ -15,9 +15,13 @@ from urllib.parse import quote
 from supabase import create_client, Client
 import hashlib
 
-# Environment variables - hardcoded for Railway deployment
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://aesnlbefqtxylvkqdlqo.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlc25sYmVmcXR4eWx2a3FkbHFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjU2NTk4MSwiZXhwIjoyMDcyMTQxOTgxfQ.evKWee9bgtjPVxS1AY2c14I7phtu36EL2tu2swWFC8M")
+# Environment variables - MUST be set in Railway
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    print("❌ ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set as environment variables")
+    exit(1)
 
 class ProviderIntelligenceEngine:
     """
