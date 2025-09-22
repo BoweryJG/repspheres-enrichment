@@ -7,6 +7,7 @@ Continuously enriches providers from rpin_providers table using FREE search APIs
 import os
 import asyncio
 import aiohttp
+from aiohttp import web
 from datetime import datetime, timedelta
 import json
 import random
@@ -14,14 +15,21 @@ import re
 from urllib.parse import quote
 from supabase import create_client, Client
 import hashlib
+import threading
 
-# Environment variables - MUST be set in Railway
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+# Environment variables - Set in Railway
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://aesnlbefqtxylvkqdlqo.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlc25sYmVmcXR4eWx2a3FkbHFvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NjU2NTk4MSwiZXhwIjoyMDcyMTQxOTgxfQ.evKWee9bgtjPVxS1AY2c14I7phtu36EL2tu2swWFC8M")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    print("❌ ERROR: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set as environment variables")
-    exit(1)
+# Global engine status
+ENGINE_STATUS = {
+    "status": "starting",
+    "cycle_count": 0,
+    "providers_enriched": 0,
+    "hot_leads_found": 0,
+    "last_cycle": None,
+    "current_focus": "Boston/New England"
+}
 
 class ProviderIntelligenceEngine:
     """
@@ -56,11 +64,15 @@ class ProviderIntelligenceEngine:
 
     async def start(self):
         """Start the continuous enrichment engine"""
+        global ENGINE_STATUS
+        ENGINE_STATUS["status"] = "running"
+
         print("="*80)
         print("🚀 REPSPHERES PROVIDER INTELLIGENCE ENGINE")
         print("="*80)
         print(f"Database: {SUPABASE_URL}")
         print(f"Started: {datetime.now()}")
+        print("📍 FOCUS: Boston/New England Markets First")
         print("="*80)
 
         self.session = aiohttp.ClientSession(
@@ -70,12 +82,15 @@ class ProviderIntelligenceEngine:
         try:
             while True:
                 self.cycle_count += 1
+                ENGINE_STATUS["cycle_count"] = self.cycle_count
                 await self.enrich_cycle()
+                ENGINE_STATUS["last_cycle"] = datetime.now().isoformat()
                 print(f"\n⏰ Waiting 5 minutes before next cycle...")
                 await asyncio.sleep(300)  # 5 minutes - MORE AGGRESSIVE!
 
         except KeyboardInterrupt:
             print("\n🛑 Shutting down...")
+            ENGINE_STATUS["status"] = "stopped"
         finally:
             if self.session:
                 await self.session.close()
@@ -108,6 +123,8 @@ class ProviderIntelligenceEngine:
             # Rate limiting
             await asyncio.sleep(2)
 
+        ENGINE_STATUS["providers_enriched"] = self.providers_enriched
+        ENGINE_STATUS["hot_leads_found"] = self.hot_leads_found
         print(f"\n✅ Cycle complete - Enriched: {self.providers_enriched}, Hot leads: {self.hot_leads_found}")
 
     async def get_providers_to_enrich(self):
@@ -376,17 +393,42 @@ class ProviderIntelligenceEngine:
 
         return "Unknown Provider"
 
+# Health check web server for Railway
+async def health_check(request):
+    """Health check endpoint for Railway"""
+    return web.json_response({
+        "status": "healthy",
+        "engine": ENGINE_STATUS,
+        "timestamp": datetime.now().isoformat()
+    })
+
+async def start_web_server():
+    """Start health check server"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv('PORT', 8080)))
+    await site.start()
+    print(f"🌐 Health check server running on port {os.getenv('PORT', 8080)}")
+
 async def main():
     """Main entry point"""
+    # Start health check server
+    await start_web_server()
+
+    # Start enrichment engine
     engine = ProviderIntelligenceEngine()
     await engine.start()
 
 if __name__ == "__main__":
     print("🚀 STARTING REPSPHERES PROVIDER INTELLIGENCE ENGINE")
+    print("   • BOSTON/NEW ENGLAND FOCUS")
     print("   • Pulling providers from rpin_providers table")
     print("   • Searching for equipment & expansion signals")
     print("   • Enriching rpin_provider_intelligence")
-    print("   • Using FREE APIs only (no keys required)")
-    print("   • Deploying to Railway...")
+    print("   • Health check on port", os.getenv('PORT', 8080))
 
     asyncio.run(main())
