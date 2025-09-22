@@ -111,21 +111,50 @@ class ProviderIntelligenceEngine:
         print(f"\n✅ Cycle complete - Enriched: {self.providers_enriched}, Hot leads: {self.hot_leads_found}")
 
     async def get_providers_to_enrich(self):
-        """Get providers from rpin_providers that need enrichment"""
+        """Get providers from rpin_providers that need enrichment - BOSTON/NEW ENGLAND FIRST"""
         try:
-            # Get providers that haven't been enriched recently
+            # PRIORITIZE NEW ENGLAND STATES (MA, CT, RI, NH, VT, ME)
+            # Start with Massachusetts (especially Boston area)
             response = self.supabase.table("rpin_providers").select(
                 "id,npi,provider_name,first_name,last_name,organization_name,city,state"
-            ).in_("state", ["CA", "MA", "PA", "TX", "FL", "NY"]).limit(100).execute()
+            ).in_("state", ["MA", "CT", "RI", "NH", "VT", "ME"]).limit(200).execute()
 
             providers = response.data
+
+            # SORT BY BOSTON PROXIMITY - Boston-area cities first
+            boston_area_cities = [
+                "BOSTON", "CAMBRIDGE", "SOMERVILLE", "BROOKLINE", "NEWTON",
+                "QUINCY", "WALTHAM", "MEDFORD", "MALDEN", "REVERE",
+                "LEXINGTON", "BELMONT", "WATERTOWN", "DEDHAM", "NEEDHAM",
+                "WELLESLEY", "NATICK", "FRAMINGHAM", "CONCORD", "WINCHESTER"
+            ]
+
+            def sort_by_boston_proximity(provider):
+                city = (provider.get('city') or '').upper()
+                # Boston area gets top priority
+                if city in boston_area_cities:
+                    return (0, boston_area_cities.index(city))
+                # Other MA cities next
+                elif provider.get('state') == 'MA':
+                    return (1, city)
+                # Then other New England states
+                else:
+                    state_order = {'CT': 2, 'RI': 3, 'NH': 4, 'VT': 5, 'ME': 6}
+                    return (state_order.get(provider.get('state'), 7), city)
+
+            providers.sort(key=sort_by_boston_proximity)
 
             # Filter out already enriched providers (check rpin_provider_intelligence by NPI)
             enriched_response = self.supabase.table("rpin_provider_intelligence").select("npi").execute()
             enriched_npis = {r['npi'] for r in enriched_response.data if r.get('npi')}
 
             # Return providers not yet enriched
-            return [p for p in providers if p.get('npi') and p['npi'] not in enriched_npis][:50]  # Limit to 50 per cycle
+            unenriched = [p for p in providers if p.get('npi') and p['npi'] not in enriched_npis]
+
+            if unenriched:
+                print(f"   📍 Starting with: {unenriched[0].get('city', '')}, {unenriched[0].get('state', '')}")
+
+            return unenriched[:50]  # Limit to 50 per cycle
 
         except Exception as e:
             print(f"❌ Error getting providers: {e}")
