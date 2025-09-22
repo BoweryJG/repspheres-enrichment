@@ -67,8 +67,8 @@ class ProviderIntelligenceEngine:
             while True:
                 self.cycle_count += 1
                 await self.enrich_cycle()
-                print(f"\n⏰ Waiting 30 minutes before next cycle...")
-                await asyncio.sleep(1800)  # 30 minutes
+                print(f"\n⏰ Waiting 5 minutes before next cycle...")
+                await asyncio.sleep(300)  # 5 minutes - MORE AGGRESSIVE!
 
         except KeyboardInterrupt:
             print("\n🛑 Shutting down...")
@@ -116,12 +116,12 @@ class ProviderIntelligenceEngine:
 
             providers = response.data
 
-            # Filter out already enriched providers (check rpin_provider_intelligence)
-            enriched_response = self.supabase.table("rpin_provider_intelligence").select("provider_id").execute()
-            enriched_ids = {r['provider_id'] for r in enriched_response.data if r.get('provider_id')}
+            # Filter out already enriched providers (check rpin_provider_intelligence by NPI)
+            enriched_response = self.supabase.table("rpin_provider_intelligence").select("npi").execute()
+            enriched_npis = {r['npi'] for r in enriched_response.data if r.get('npi')}
 
             # Return providers not yet enriched
-            return [p for p in providers if p['id'] not in enriched_ids][:50]  # Limit to 50 per cycle
+            return [p for p in providers if p.get('npi') and p['npi'] not in enriched_npis][:50]  # Limit to 50 per cycle
 
         except Exception as e:
             print(f"❌ Error getting providers: {e}")
@@ -275,9 +275,18 @@ class ProviderIntelligenceEngine:
     async def save_intelligence(self, intelligence, provider):
         """Save enriched intelligence to database"""
         try:
+            # Generate rpin_id (unique identifier for this intelligence record)
+            npi_val = provider.get('npi')
+            if npi_val and str(npi_val) != 'nan' and str(npi_val) != 'None':
+                id_part = str(npi_val)
+            else:
+                id_part = str(provider['id'])[:8]
+            rpin_id = f"RPIN-{id_part}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
             # Prepare record for rpin_provider_intelligence
             record = {
-                'provider_id': str(provider['id']),  # Ensure UUID format
+                'rpin_id': rpin_id,  # REQUIRED field that was missing!
+                'provider_id': None,  # provider_id expects UUID but we have integer IDs
                 'npi': provider.get('npi'),
                 'display_name': intelligence['display_name'],
                 'first_name': provider.get('first_name'),
@@ -295,9 +304,10 @@ class ProviderIntelligenceEngine:
             # Insert to rpin_provider_intelligence (upsert not working)
             try:
                 response = self.supabase.table("rpin_provider_intelligence").insert(record).execute()
-            except:
+            except Exception as e:
+                print(f"      ⚠️ Insert failed, trying update: {str(e)[:100]}")
                 # If exists, update instead
-                response = self.supabase.table("rpin_provider_intelligence").update(record).eq('provider_id', provider['id']).execute()
+                response = self.supabase.table("rpin_provider_intelligence").update(record).eq('rpin_id', rpin_id).execute()
 
             # If high opportunity score, also add to provider_buying_signals
             if intelligence['opportunity_score'] >= 30:
